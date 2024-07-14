@@ -4,7 +4,6 @@ use std::io::BufRead;
 use std::io::BufWriter;
 use std::io::{BufReader, Read, Result, Write};
 
-
 static DEFAULT_EPSILON: f32 = 1e-6;
 
 #[derive(Default, Debug, Clone, Copy)]
@@ -59,12 +58,11 @@ macro_rules! eq_e {
 
 impl PartialEq for Vec3<f32> {
     fn eq(&self, other: &Self) -> bool {
-        eq_e!(self[0], other[0], DEFAULT_EPSILON) &&
-        eq_e!(self[1], other[1], DEFAULT_EPSILON) &&
-        eq_e!(self[2], other[2], DEFAULT_EPSILON)
+        eq_e!(self[0], other[0], DEFAULT_EPSILON)
+            && eq_e!(self[1], other[1], DEFAULT_EPSILON)
+            && eq_e!(self[2], other[2], DEFAULT_EPSILON)
     }
 }
-
 
 #[inline(always)]
 fn tri_area(a: Vertex, b: Vertex, c: Vertex) -> f32 {
@@ -261,27 +259,34 @@ impl<'a> BinaryStlReader<'a> {
     ) -> Result<Box<dyn TriangleIterator<Item = Result<Triangle>> + 'a>> {
         let mut reader = Box::new(BufReader::new(read));
         reader.read_exact(&mut [0u8; 80])?;
-        let num_faces = reader.read_u32::<LittleEndian>()? as usize;
+        let mut f32_buf = [0; 4];
+        reader.read(&mut f32_buf)?;
+        let num_faces: u32 = u32::from_le_bytes(f32_buf);
         Ok(Box::new(BinaryStlReader {
             reader,
             index: 0,
-            size: num_faces,
+            size: num_faces as usize,
         })
             as Box<dyn TriangleIterator<Item = Result<Triangle>>>)
     }
 
     fn next_face(&mut self) -> Result<Triangle> {
-        let mut normal = Normal::default();
+        let mut normal = NormalV::default();
         for f in &mut normal.0 {
-            *f = self.reader.read_f32::<LittleEndian>()?;
+            let mut f32_buf = [0; 4];
+            self.reader.read(&mut f32_buf)?;
+            *f = f32::from_le_bytes(f32_buf);
         }
         let mut face = [Vertex::default(); 3];
         for vertex in &mut face {
             for c in vertex.0.iter_mut() {
-                *c = self.reader.read_f32::<LittleEndian>()?;
+                let mut f32_buf = [0; 4];
+                self.reader.read(&mut f32_buf)?;
+                *c = f32::from_le_bytes(f32_buf);
             }
         }
-        self.reader.read_u16::<LittleEndian>()?;
+        let mut u16_buf = [0; 4];
+        self.reader.read(&mut u16_buf)?;
         Ok(Triangle {
             normal,
             vertices: face,
@@ -477,9 +482,9 @@ impl<'a> AsciiStlReader<'a> {
     fn tokens_to_f32(tokens: &[String], output: &mut [f32]) -> Result<()> {
         assert_eq!(tokens.len(), output.len());
         for i in 0..tokens.len() {
-            let f = tokens[i].parse::<f32>().map_err(|e| {
-                std::io::Error::new(std::io::ErrorKind::InvalidData, e.to_string())
-            })?;
+            let f = tokens[i]
+                .parse::<f32>()
+                .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e.to_string()))?;
             if !f.is_finite() {
                 return Err(std::io::Error::new(
                     std::io::ErrorKind::InvalidData,
@@ -508,4 +513,3 @@ impl<'a> AsciiStlReader<'a> {
         Ok(())
     }
 }
-
